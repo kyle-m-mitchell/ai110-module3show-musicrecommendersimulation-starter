@@ -1,33 +1,49 @@
 """
 Command line runner for the Music Recommender Simulation.
 
-This file helps you quickly run and test your recommender.
-
-You will implement the functions in recommender.py:
-- load_songs
-- score_song
-- recommend_songs
+Runs the functional path end to end:
+    load_songs -> recommend_songs (which uses score_song as the per-song judge)
 """
 
-from recommender import load_songs, recommend_songs
+from src.recommender import load_songs, recommend_songs
+
+
+def format_profile(profile: dict) -> str:
+    """Render the taste profile as a compact, single-line summary."""
+    return ", ".join(f"{key}={value}" for key, value in profile.items())
+
+
+def print_recommendations(profile: dict, recommendations) -> None:
+    """Print recommendations in a clean, readable terminal layout."""
+    divider = "-" * 64
+    print("\n🎵  Music Recommender — your top picks\n")
+    print(f"Taste profile: {format_profile(profile)}")
+    print(divider)
+    for rank, (song, score, explanation) in enumerate(recommendations, start=1):
+        print(f"{rank}. {song['title']} — {song['artist']}  [{song['genre']} · {song['mood']}]")
+        print(f"   Score: {score:.2f}")
+        print("   Why:")
+        for reason in explanation.split("; "):
+            print(f"     • {reason}")
+        print(divider)
 
 
 def main() -> None:
-    songs = load_songs("data/songs.csv") 
+    songs = load_songs("data/songs.csv")
 
-    # Starter example profile
-    user_prefs = {"genre": "pop", "mood": "happy", "energy": 0.8}
+    # Taste profile for the functional path. Every key is optional — a missing
+    # one simply contributes 0 to the score.
+    taste_profile = {
+        "genre": "lofi",
+        "mood": "chill",
+        "energy": 0.40,
+        "acousticness": 0.80,
+        "valence": 0.55,
+        "danceability": 0.40,
+    }
 
-    recommendations = recommend_songs(user_prefs, songs, k=5)
-
-    print("\nTop recommendations:\n")
-    for rec in recommendations:
-        # You decide the structure of each returned item.
-        # A common pattern is: (song, score, explanation)
-        song, score, explanation = rec
-        print(f"{song['title']} - Score: {score:.2f}")
-        print(f"Because: {explanation}")
-        print()
+    recommendations = recommend_songs(taste_profile, songs, k=5)
+    print_recommendations(taste_profile, recommendations)
 
 
 if __name__ == "__main__":
