@@ -2,110 +2,311 @@
 
 ## 1. Model Name  
 
-Give your model a short, descriptive name.  
-Example: **VibeFinder 1.0**  
+**TasteTether 1.0** — a content-based music recommender simulation.
 
 ---
 
 ## 2. Intended Use  
 
-Describe what your recommender is designed to do and who it is for. 
-
-Prompts:  
-
-- What kind of recommendations does it generate  
-- What assumptions does it make about the user  
-- Is this for real users or classroom exploration  
+My recommender is designed to gather the music "taste" of a user and suggest songs based off of their preferences. The system assumes the user would prefer listening to their favorite genre, at that moment, by default and returns a list of songs, fine-tuned to their preferences. This is purely for classroom exploration.
 
 ---
 
 ## 3. How the Model Works  
 
-Explain your scoring approach in simple language.  
+Real world recommenders tend to be hybrids of content-based filtering and
+collaborative filtering. Content based filtering compares a single user's
+preference with the attributes of an item to suggest content to the user. My
+simulation is content based. It scores each song by how closely its attributes
+match a user's taste profile, using no data about other users. It prioritizes
+genre most heavily, then mood, then how close a song's numeric qualities are to
+what the user wants. Genre is *provably* the decisive signal: its weight (4.0)
+is set to exceed everything else combined (mood 1.5 + numeric budget 2.0 = 3.5),
+so an exact-genre song always outranks any unrelated-genre song while the mood
+and numeric features fine-tune the ranking within a genre.
 
-Prompts:  
+In plain terms, each song earns points for what it gets right: a matching genre
+or mood adds a fixed number of points, and each numeric quality (energy,
+valence, danceability, acousticness) adds more points the closer it is to the
+user's target. Genre is worth the most points, mood a little less, and the
+numeric qualities the least. Every song's points are added into one total score,
+and the songs are then ranked from highest to lowest so the best matches appear
+first.
 
-- What features of each song are used (genre, energy, mood, etc.)  
-- What user preferences are considered  
-- How does the model turn those into a score  
-- What changes did you make from the starter logic  
+**Song features used:** genre, mood, energy, acousticness, valence,
+danceability, tempo.
 
-Avoid code here. Pretend you are explaining the idea to a friend who does not program.
+**UserProfile preferences considered:** favorite_genre, favorite_mood,
+target_energy, target_acousticness, target_valence, target_danceability,
+target_tempo (in BPM). Genre and mood are matched case-insensitively.
+
+Every preference has exactly one song attribute it's compared against.
 
 ---
 
 ## 4. Data  
 
-Describe the dataset the model uses.  
+The catalog contains **20 songs**. Each song has a title, artist, genre, mood,
+and five numeric audio features (energy, tempo, valence, danceability,
+acousticness).
 
-Prompts:  
+The starter file included 10 songs across 7 genres (pop, lofi, rock, ambient,
+jazz, synthwave, indie pop) and 6 moods (happy, chill, intense, relaxed, moody,
+focused). I added 10 more songs to widen the range, introducing 10 new genres
+(hip hop, classical, reggae, metal, country, edm, blues, folk, r&b, funk) and 10
+new moods (energetic, melancholy, uplifting, aggressive, nostalgic, euphoric,
+somber, hopeful, romantic, playful). The catalog now spans 17 genres and 16
+moods.
 
-- How many songs are in the catalog  
-- What genres or moods are represented  
-- Did you add or remove data  
-- Are there parts of musical taste missing in the dataset  
+What's still missing: most genres are represented by only one or two songs, so
+the data can't show how varied a single genre really is. There are also no
+lyrics, language, release year, or artist popularity, and no information about
+listeners at all — which is exactly why a collaborative (people-like-you)
+approach isn't possible with this dataset.
 
 ---
 
 ## 5. Strengths  
 
-Where does your system seem to work well  
+TasteTether does three things well:
 
-Prompts:  
+**Coherent picks when a taste is clear.** When a profile's dials agree — a genre,
+a mood, and sound targets that all point the same way — the results form a tight,
+sensible cluster. The *Workout* profile (edm + energetic + loud/fast) returns edm
+on top followed by its closest pop and synthwave cousins in energy order, and the
+*Study* profile (lofi + chill + calm/quiet) returns a clean run of lofi and
+mellow tracks. In these everyday cases the recommendations match intuition
+(see Section 7).
 
-- User types for which it gives reasonable results  
-- Any patterns you think your scoring captures correctly  
-- Cases where the recommendations matched your intuition  
+**Graceful fallback to "cousin" genres and moods.** Instead of collapsing to
+nothing when exact matches run out, the similarity families award partial credit
+to related genres and moods, so a lofi listener sees ambient and jazz before
+anything jarring. The list degrades smoothly from exact matches, to close
+cousins, to everything else.
+
+**Simple, fast, and needs no training data.** The whole model is a weighted sum a
+person can read top to bottom and adjust by hand. It runs instantly on the
+catalog with no user history, no training step, and no outside services, which
+makes it easy to reason about and easy to test.
 
 ---
 
-## 6. Limitations and Bias 
+## 6. Limitations and Bias
 
-Where the system struggles or behaves unfairly. 
-
-Prompts:  
-
-- Features it does not consider  
-- Genres or moods that are underrepresented  
-- Cases where the system overfits to one preference  
-- Ways the scoring might unintentionally favor some users  
+**Discovered weakness — the family-size lottery.** The most serious bias is a
+filter bubble whose severity depends on *which* family a listener happens to fall
+into. Genre is weighted 4.0 specifically so an exact-genre match always outranks
+any unrelated genre, which locks the top of every list to the user's genre and
+its hand-drawn family and makes cross-genre discovery effectively impossible.
+That would be fair if every family were equally deep, but they are not: the
+20-song catalog gives *mellow* six songs and *pop_elec* five, while *rock_heavy*
+has only two (rock, metal) and 15 of the 17 genres appear exactly once. The
+result is unequal recommendation quality. A lofi (mellow) fan receives five
+coherent, high-confidence picks entirely inside their comfort zone (scores
+4.4–7.3), whereas a metal (rock_heavy) fan gets metal, then rock, and then falls
+off a cliff into unrelated genres — hip hop, pop, country — surfaced purely on
+numeric noise at scores near 2, barely a third of the exact match. Because the
+score carries no confidence signal, this filler is presented with exactly the
+same authority as a real match, so users with narrow or underrepresented tastes
+are quietly served near-random recommendations dressed up as personalized ones.
 
 ---
 
 ## 7. Evaluation  
 
-How you checked whether the recommender behaved as expected. 
+### Everyday profiles I tested
 
-Prompts:  
+Think of a taste profile as a set of dials: one for **genre**, one for **mood**,
+and five sliders for the sound itself (energy, acousticness, valence,
+danceability, and tempo). To see what each dial actually *does*, I tested the
+profiles in **pairs**, changing only one dial at a time and leaving everything
+else identical. That way, any change in the recommendations can only be caused
+by the one dial I moved.
 
-- Which user profiles you tested  
-- What you looked for in the recommendations  
-- What surprised you  
-- Any simple tests or comparisons you ran  
+| Nickname | Genre | Mood | Sliders | #1 recommendation |
+|---|---|---|---|---|
+| **Study** | lofi | chill | calm & quiet (low energy, 75 bpm, acoustic) | Library Rain *(lofi)* |
+| **Study→Metal** | metal | chill | calm & quiet *(same as Study)* | Iron Verdict *(metal)* |
+| **Study→Energetic** | lofi | energetic | calm & quiet *(same as Study)* | Library Rain *(lofi)* |
+| **Study→Hype** | lofi | chill | loud & fast (high energy, 135 bpm, danceable) | Midnight Coding *(lofi)* |
+| **Workout** | edm | energetic | loud & fast | Neon Cathedral *(edm)* |
 
-No need for numeric metrics unless you created some.
+**Pair 1 — change only the genre (Study vs Study→Metal): what does the "genre"
+dial control?** I kept the mood (chill) and every slider (quiet, slow, acoustic)
+exactly the same and changed a single word, lofi → metal. The whole list flipped:
+a calm lofi track on top became a loud metal track on top. The surprising part is
+that the metal song that comes back, *Iron Verdict*, is loud, fast, and
+"aggressive" — the exact opposite of the quiet, chill settings I asked for, yet
+it still wins.
+That makes sense: the genre dial outranks everything else combined, so it decides
+the *neighborhood* you get recommended from even when your other dials disagree
+with it. This is valid behavior (genre is meant to be decisive), but it also
+shows the profile was asking for two contradictory things and genre quietly won.
+Notice too that the metal list is much less confident (top score 5.11 vs 7.40 for
+the lofi list) and its runners-up are actually the same quiet lofi songs — because
+metal has only one song and one close cousin (rock), the list runs out of real
+matches almost immediately.
+
+**Pair 2 — change only the mood (Study vs Study→Energetic): what does the "mood"
+dial control?** I kept the genre (lofi) and the sliders the same and switched the
+mood from chill to energetic. Surprisingly, I got back the *exact same three lofi
+songs*, just with lower scores and a slightly shuffled order. The reason is that
+none of the lofi songs are "energetic" (they are chill or focused), so asking for
+an energetic mood simply removed the mood bonus from all of them — and nobody new
+could take their place because genre still dominates. One telling detail: in the
+chill version *Midnight Coding* was #2, but in the energetic version it slipped to
+#3 while *Focus Flow* rose to #2. That happened because Midnight Coding lost a full
+chill-match bonus (1.50 points) while Focus Flow only lost a smaller cousin bonus
+(0.75), so the near-ties reshuffled. Takeaway: the mood dial fine-tunes the
+emotional flavor *within* your genre and breaks ties — but if your genre has no
+songs in that mood, asking for it barely changes *who* you get. It is valid, but
+it degrades quietly: it never tells you "there are no energetic lofi songs," it
+just hands back the chill ones with a smaller number.
+
+**Pair 3 — change only the sliders (Study vs Study→Hype): what do the sound
+sliders control?** I kept the genre (lofi) and mood (chill) and flipped every
+slider from calm/quiet/slow to loud/fast/danceable, a workout setting. I *still*
+got quiet lofi study music. The only thing that changed was that #1 and #2 traded
+places: *Midnight Coding* (a hair louder at energy 0.42 and 78 bpm) edged ahead of
+the very quiet *Library Rain* (0.35, 72 bpm), because when you ask for a loud song
+the slightly-louder track is the closer match. This makes sense: the sliders are
+*fine-tuning knobs, not a steering wheel*. They decide which lofi song rises to the
+top; they cannot get you out of lofi. It is valid by design, but a listener who
+cranks energy to the maximum expecting gym music — while leaving the genre on
+lofi — will be surprised to still receive study beats.
+
+**Pair 4 — change everything (Study vs Workout): does it hold together for a
+consistent persona?** Here all three dials agree: a loud electronic genre (edm),
+an energetic mood, and loud/fast sliders. The result is a tidy, sensible cluster,
+edm on top, then its close pop and synthwave cousins, ordered from most to least
+energetic. Compared with the quiet, coherent lofi cluster from Study, this shows
+the recommender works cleanly when your preferences all point the same direction.
+It is the mirror image of Pair 1's metal profile, where the dials fought each
+other and produced a jumbled, low-confidence list. So the system is most
+trustworthy when genre, mood, and sliders agree, and least trustworthy when they
+contradict — in which case it silently sides with genre.
+
+**What was surprising, in one line.** Two of the three preference types, mood and
+the sound sliders, mostly *cannot change who you get recommended*; only the genre
+dial can. Moving them just changes the scores and the fine ordering. In plain
+terms, a profile really means "pick a genre, then gently sort the songs inside
+it," which is worth knowing before trusting the mood and slider settings to steer
+the results.
+
+### Adversarial edge-case profiles
+
+I also ran a set of **adversarial edge-case profiles** against the full 20-song
+catalog to find where the scoring logic breaks. Each block below is real output
+from `recommend_songs`.
+
+**Finding 1 — "genre is decisive" holds only conditionally.** Genre is weighted
+3.0, but every other signal combined sums to 5.0 (mood 1.5 + numeric 3.5). A
+coherent-looking user ("lofi genre, aggressive mood") gets a **metal** track as
+their #1 pick, ahead of every lofi song, because the intruder collects mood +
+numeric points that exceed the exact-genre song's total. Genre only "wins" when
+no off-genre song can rescue itself that way (profile A).
+
+```
+A) genre=lofi, mood=romantic, energy=0.97, acousticness=0.03, valence=0.30, danceability=0.42
+  1. Midnight Coding      [lofi/chill]        score=4.91
+  2. Focus Flow           [lofi/focused]      score=4.80
+  3. Library Rain         [lofi/chill]        score=4.67
+
+B) genre=lofi, mood=aggressive, energy=0.97, acousticness=0.03, valence=0.30, danceability=0.42
+  1. Iron Verdict         [metal/aggressive]  score=5.00   <-- wrong genre wins
+  2. Midnight Coding      [lofi/chill]        score=4.91
+  3. Focus Flow           [lofi/focused]      score=4.80
+```
+
+**Finding 2 — no input validation.** Out-of-range numeric targets (typos) clamp
+to 0 silently; the model drops all numeric signal and falls back to
+categorical-only with no error or warning.
+
+```
+C) genre=lofi, mood=chill, energy=9000, acousticness=-5, valence=50, danceability=1e9
+  1. Midnight Coding      [lofi/chill]     score=4.50   (numeric contribution: 0)
+  2. Library Rain         [lofi/chill]     score=4.50
+  3. Focus Flow           [lofi/focused]   score=3.75
+```
+
+**Finding 3 — categorical matching is case-sensitive.** `"Lofi"` != `"lofi"`, so
+capitalizing the favorite silently discards genre and mood; ranking collapses to
+numerics and a **folk** song ties the top lofi track.
+
+```
+D) genre=Lofi, mood=Chill, energy=0.40, acousticness=0.80, valence=0.55, danceability=0.40
+  1. Focus Flow           [lofi/focused]   score=3.34
+  2. Midnight Coding      [lofi/chill]     score=3.27
+  3. Paper Compass        [folk/hopeful]   score=3.27   <-- folk ties lofi
+```
+
+**Finding 4 — no "nothing matches" signal.** When nothing matches, every song
+scores 0.00 and the top picks are just the lowest-`id` songs in catalog order.
+An empty profile is indistinguishable from a completely wrong one.
+
+```
+E) genre=polka, mood=spicy, energy=500, acousticness=500, valence=500, danceability=500
+  1. Sunrise City         [pop/happy]      score=0.00
+  2. Midnight Coding      [lofi/chill]     score=0.00
+  3. Storm Runner         [rock/intense]   score=0.00
+
+F) {}  (empty profile)  -> identical output to E, i.e. plain id order
+```
+
+**What surprised me.** The failure mode is always *silent* — no exception, no
+warning, just quietly wrong output. The genre-dominance guarantee I reasoned
+about in the README was really a property of this catalog's value ranges, not of
+the weights themselves. I also confirmed `tempo_bpm` was loaded but never scored,
+so a tempo-driven listener was entirely unserved.
+
+**Changes made in response.** I retuned the weights and re-ran the same
+profiles:
+
+- Genre 3.0 → 4.0 and the numeric budget 3.5 → 2.0, enforcing
+  `W_genre > W_mood + numerics`. Findings 1 is now closed — profile B returns
+  lofi songs on top; a wrong-genre track can no longer win.
+- Genre/mood matching is now case-insensitive, closing Finding 3.
+- Tempo is now scored (target in BPM, normalized to 0–1), closing the
+  never-scored gap.
+- Findings E/F (empty / all-miss profile returns catalog order at score 0.00)
+  are **still open** — that needs an explicit "no confident matches" signal
+  rather than a weight change, and is listed under Future Work.
 
 ---
 
 ## 8. Future Work  
 
-Ideas for how you would improve the model next.  
+My testing (Sections 6 and 7) pointed to four concrete next steps:
 
-Prompts:  
-
-- Additional features or preferences  
-- Better ways to explain recommendations  
-- Improving diversity among the top results  
-- Handling more complex user tastes  
+- **Add a "no confident matches" signal.** Right now an empty or all-miss profile
+  still returns five songs at score 0.00 in catalog order (Findings E/F), which
+  looks like a real answer. The recommender should notice when nothing clears a
+  minimum bar and say so, instead of presenting filler as picks.
+- **Inject genre diversity into the top-k.** To soften the filter-bubble /
+  family-size lottery from Section 6, the ranker could reserve a slot or two for
+  strong matches outside the user's family, trading a little genre purity for
+  real discovery.
+- **Grow a bigger, deeper catalog.** With 15 of 17 genres represented by a single
+  song, results often lean on one track or its cousins. More songs per genre
+  would make within-genre ranking meaningful and cut down on the noise-filler
+  problem.
+- **Support smarter, more expressive preferences.** Allow directional targets
+  ("at least this energetic" rather than "near this"), and learn the genre/mood
+  families from the data instead of hand-drawing them, so the groupings aren't
+  just the designer's judgment calls.
 
 ---
 
 ## 9. Personal Reflection  
 
-A few sentences about your experience.  
-
-Prompts:  
-
-- What you learned about recommender systems  
-- Something unexpected or interesting you discovered  
-- How this changed the way you think about music recommendation apps  
+The biggest thing I took away is that bias in a recommender rarely arrives as one
+dramatic decision — it hides inside small, reasonable-looking choices. Drawing the
+genre "families" by hand felt harmless, and so did working with a small catalog,
+but together they quietly produced unfair results: a lofi fan gets a rich,
+coherent list while a metal fan falls off a cliff into near-random songs, and
+nothing in the output warns anyone that it happened. Watching a single number —
+the genre weight — decide who gets a good experience and who doesn't made the
+trade-offs feel real in a way I didn't expect going in. It has changed how I look
+at the apps I use every day: behind a tidy list of "recommended for you" sit
+dozens of quiet judgment calls, and the ones that create bias are usually not the
+ones that looked risky up front.

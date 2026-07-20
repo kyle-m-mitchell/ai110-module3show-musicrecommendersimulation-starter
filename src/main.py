@@ -40,6 +40,7 @@ def main() -> None:
         "acousticness": 0.80,
         "valence": 0.55,
         "danceability": 0.40,
+        "tempo": 78,  # BPM — a relaxed study-beat tempo
     }
 
     recommendations = recommend_songs(taste_profile, songs, k=5)

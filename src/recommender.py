@@ -4,16 +4,37 @@ from dataclasses import dataclass, asdict
 
 # --- Scoring configuration -------------------------------------------------
 # Weights control how much each feature can contribute to a song's score.
-# Genre is the decisive signal (see README): at 3.0 it stays dominant while
-# mood and the numeric features fine-tune the ranking within a genre.
+#
+# Genre is the decisive signal, and we make that provable rather than hopeful:
+#
+#     W_genre (4.0)  >  W_mood (1.5) + sum(numeric weights) (2.0)  =  3.5
+#
+# An unrelated-genre song earns 0 genre points, so the most it can ever reach
+# is W_mood + all numerics = 3.5. An exact-genre song banks W_genre = 4.0 up
+# front. Therefore *any* exact-genre match outranks *any* unrelated-genre song,
+# no matter how well the numerics line up (this is the fix for the "a metal
+# track topped a lofi profile" edge case — see README > Experiments). Cousins
+# (0.5 * W_genre = 2.0) can still overtake a *weak* exact match when overall
+# fit is strong, which is the graceful degradation we want.
+#
+# The numeric features share a small 2.0 budget: they *fine-tune* the order
+# within a genre instead of competing with it.
 WEIGHTS = {
-    "genre": 3.0,
+    "genre": 4.0,
     "mood": 1.5,
-    "energy": 1.0,
-    "acousticness": 1.0,
-    "valence": 1.0,
-    "danceability": 0.5,
+    "energy": 0.50,
+    "valence": 0.45,
+    "danceability": 0.40,
+    "acousticness": 0.35,
+    "tempo": 0.30,
 }
+
+# Tempo is stored in raw BPM, so it can't use the 0-1 closeness formula
+# directly. We map BPM onto 0-1 over a fixed musical range before comparing,
+# which keeps tempo on the same footing as the other numeric features and makes
+# the default target (125 BPM) land exactly at the neutral midpoint (0.5).
+TEMPO_MIN_BPM = 50.0
+TEMPO_MAX_BPM = 200.0
 
 # Similarity families give partial credit for "cousin" genres/moods so the
 # recommender degrades gracefully (a lofi fan sees ambient/jazz before metal).
@@ -38,8 +59,15 @@ MOOD_FAMILIES = {
 GENRE_TO_FAMILY = {g: fam for fam, members in GENRE_FAMILIES.items() for g in members}
 MOOD_TO_FAMILY = {m: fam for fam, members in MOOD_FAMILIES.items() for m in members}
 
-# Numeric features scored by closeness = 1 - |target - value|.
+# 0-1 numeric features scored by closeness = 1 - |target - value|.
+# Tempo is handled separately because it lives on a BPM scale (see below).
 NUMERIC_FEATURES = ("energy", "acousticness", "valence", "danceability")
+
+
+def _normalize_tempo(bpm: float) -> float:
+    """Map a BPM value onto 0-1 over [TEMPO_MIN_BPM, TEMPO_MAX_BPM], clamped."""
+    span = TEMPO_MAX_BPM - TEMPO_MIN_BPM
+    return min(1.0, max(0.0, (bpm - TEMPO_MIN_BPM) / span))
 
 
 @dataclass
@@ -71,6 +99,7 @@ class UserProfile:
     target_acousticness: float = 0.5
     target_valence: float = 0.5
     target_danceability: float = 0.5
+    target_tempo: float = 125.0  # BPM; 125 is the neutral midpoint of [50, 200]
 
 def _profile_to_prefs(user: UserProfile) -> Dict:
     """Adapt a UserProfile object to the dict shape score_song expects."""
@@ -81,6 +110,7 @@ def _profile_to_prefs(user: UserProfile) -> Dict:
         "acousticness": user.target_acousticness,
         "valence": user.target_valence,
         "danceability": user.target_danceability,
+        "tempo": user.target_tempo,
     }
 
 
@@ -136,13 +166,19 @@ def load_songs(csv_path: str) -> List[Dict]:
 
 def _category_score(pref_value: Optional[str], song_value: Optional[str],
                     mapping: Dict[str, str]) -> float:
-    """Categorical match: 1.0 exact, 0.5 same family, 0.0 otherwise."""
+    """Categorical match: 1.0 exact, 0.5 same family, 0.0 otherwise.
+
+    Matching is case/whitespace-insensitive so a user typing "Lofi" or " lofi "
+    still lines up with the catalog's "lofi" instead of silently scoring 0.
+    """
     if not pref_value or not song_value:
         return 0.0
-    if pref_value == song_value:
+    pref = pref_value.strip().lower()
+    song = song_value.strip().lower()
+    if pref == song:
         return 1.0
-    pref_family = mapping.get(pref_value)
-    song_family = mapping.get(song_value)
+    pref_family = mapping.get(pref)
+    song_family = mapping.get(song)
     if pref_family is not None and pref_family == song_family:
         return 0.5
     return 0.0
@@ -163,10 +199,11 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
     Scores a single song against the user's taste profile.
 
     Applies the algorithm recipe:
-        score = 3.0*genre + 1.5*mood + 1.0*energy + 1.0*acousticness
-              + 1.0*valence + 0.5*danceability
+        score = 4.0*genre + 1.5*mood + 0.50*energy + 0.45*valence
+              + 0.40*danceability + 0.35*acousticness + 0.30*tempo
     where genre/mood use similarity families (1.0 exact / 0.5 cousin / 0 else)
     and each numeric feature scores its closeness = 1 - |target - value|.
+    Tempo's target is given in BPM and normalized to 0-1 before comparison.
 
     Every profile key is optional; a missing key simply contributes 0.
 
@@ -206,6 +243,16 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
         if points > 0:
             score += points
             reasons.append(f"{feature} fit (target {target}, song {value}) +{points:.2f}")
+
+    # --- Tempo: same closeness idea, but on a BPM scale so normalize first ---
+    target_bpm = user_prefs.get("tempo")
+    song_bpm = song.get("tempo_bpm")
+    if target_bpm is not None and song_bpm is not None:
+        closeness = max(0.0, 1.0 - abs(_normalize_tempo(target_bpm) - _normalize_tempo(song_bpm)))
+        points = WEIGHTS["tempo"] * closeness
+        if points > 0:
+            score += points
+            reasons.append(f"tempo fit (target {target_bpm:g} bpm, song {song_bpm:g} bpm) +{points:.2f}")
 
     return score, reasons
 
